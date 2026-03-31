@@ -169,6 +169,9 @@ document.getElementById('connect-btn').addEventListener('click', () => {
 document.getElementById('calibrate-btn').addEventListener('click', () => {
     socket.emit('calibrate');
 });
+document.getElementById('save-btn').addEventListener('click', () => {
+    socket.emit('save_config');
+});
 
 socket.on('notification', (data) => {
     // Simple toast notification or log
