@@ -1,0 +1,7 @@
+dynamixel-sdk
+pin
+numpy
+pyyaml
+flask
+flask-socketio
+eventlet
