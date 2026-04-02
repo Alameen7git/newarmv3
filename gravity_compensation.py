@@ -434,7 +434,10 @@ class GravityCompensator:
 
         # Step 3: Calibrate joint offsets
         print("\n[3/4] Calibrating joint offsets...")
-        self._calibrate()
+        if self.config.get("interactive"):
+            self._calibrate_interactive()
+        else:
+            self._calibrate()
 
         # Step 4: Configure servos for current control
         print("\n[4/4] Configuring servos...")
@@ -536,6 +539,67 @@ class GravityCompensator:
         if max_error > 0.3:
             print(f"  WARNING: Max calibration error is {max_error:.3f} rad")
             print("  Make sure the arm is in the calibration position!")
+
+    def _calibrate_interactive(self) -> None:
+        """
+        Interactive CLI wizard to calibrate joint offsets one by one.
+        Displays real-time raw values and waits for user confirmation for each joint.
+        """
+        print("\n" + "=" * 60)
+        print("🛠️  INTERACTIVE CALIBRATION WIZARD")
+        print("=" * 60)
+        print("Move each joint to its HOME POSE and press [ENTER] to lock it in.")
+        
+        offsets = []
+        for i in range(self.num_arm_joints):
+            joint_name = f"Joint {i+1}"
+            print(f"\n👉 {joint_name}: Move to home position.")
+            
+            try:
+                # Give a small buffer to avoid accidental Enter from previous joint
+                time.sleep(0.5) 
+                while True:
+                    # Read current
+                    raw_pos, _ = self.dxl.read_positions_and_velocities()
+                    current_raw = raw_pos[i]
+                    # Estimate deg (rough)
+                    est_deg = np.degrees(self.joint_signs[i] * (current_raw / 2048.0 * np.pi))
+                    
+                    sys.stdout.write(f"\r  Position: {int(current_raw):6d} ticks | ~{est_deg:6.1f}° | Press Enter to Lock... ")
+                    sys.stdout.flush()
+                    
+                    if self._wait_for_enter(timeout=0.05):
+                        locked_offset = current_raw
+                        offsets.append(locked_offset)
+                        print(f"\n✅ {joint_name} Locked at {locked_offset:.3f}")
+                        break
+                    time.sleep(0.01)
+            except KeyboardInterrupt:
+                print("\nCalibration cancelled.")
+                sys.exit(1)
+
+        # Gripper
+        raw_pos, _ = self.dxl.read_positions_and_velocities()
+        offsets.append(raw_pos[-1])
+        self.joint_offsets = np.array(offsets, dtype=float)
+        print("\n🎉 All 6 arm joints calibrated.")
+
+    def _wait_for_enter(self, timeout=0.1) -> bool:
+        """Helper to check for Enter key without blocking forever."""
+        import select
+        if sys.platform == "win32":
+            import msvcrt
+            if msvcrt.kbhit():
+                key = msvcrt.getch()
+                if key in [b'\r', b'\n']:
+                    return True
+            return False
+        else:
+            i, o, e = select.select([sys.stdin], [], [], timeout)
+            if i:
+                sys.stdin.readline()
+                return True
+            return False
 
     def write_homing_offsets_to_hw(self) -> None:
         """Write current joint offsets to motor EEPROM (Homing Offset)."""
@@ -817,6 +881,10 @@ Safety:
         "--write-to-hw", action="store_true",
         help="Write calibration offsets to motor EEPROM (requires --calibrate)"
     )
+    parser.add_argument(
+        "--interactive", "-i", action="store_true",
+        help="Use interactive calibration wizard"
+    )
     return parser.parse_args()
 
 
@@ -833,6 +901,8 @@ def main() -> int:
         config["control_frequency_hz"] = args.freq
     if args.dry_run:
         config["dry_run"] = True
+    if args.interactive:
+        config["interactive"] = True
     if args.urdf is not None:
         config["urdf_path"] = args.urdf
     if args.friction is not None:

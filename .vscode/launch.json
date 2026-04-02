@@ -20,6 +20,15 @@
             "args": ["--calibrate"]
         },
         {
+            "name": "⌨️  Interactive Calibrate",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_robot.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--calibrate", "--interactive"]
+        },
+        {
             "name": "💾 Write Homing to EEPROM",
             "type": "python",
             "request": "launch",
