@@ -36,6 +36,7 @@ from threading import Event, Lock, Thread
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
+import config_manager
 
 # ============================================================================
 # CONFIGURATION — Edit these values to match your specific hardware setup
@@ -130,6 +131,8 @@ ADDR_PRESENT_VELOCITY = 128
 LEN_PRESENT_VELOCITY = 4
 ADDR_PRESENT_POSITION = 132
 LEN_PRESENT_POSITION = 4
+ADDR_HOMING_OFFSET = 20
+LEN_HOMING_OFFSET = 4
 
 TORQUE_ENABLE = 1
 TORQUE_DISABLE = 0
@@ -399,7 +402,7 @@ class GravityCompensator:
         self.dry_run = config["dry_run"]
 
         # State
-        self.joint_offsets = np.zeros(len(config["motor_ids"]), dtype=float)
+        self.joint_offsets = np.array(config.get("joint_offsets", np.zeros(len(config["motor_ids"]))), dtype=float)
         self.tau_g = np.zeros(self.num_arm_joints, dtype=float)
         self.stiction_dither = np.ones(self.num_arm_joints, dtype=bool)
 
@@ -442,6 +445,14 @@ class GravityCompensator:
             print("Servos set to CURRENT CONTROL mode with torque ENABLED")
         else:
             print("DRY RUN mode — torque will NOT be enabled")
+
+    def initialize_hardware_only(self) -> None:
+        """Connect to hardware and configure mode, but skip URDF/Calibration."""
+        self.dxl.connect()
+        if not self.dry_run:
+            self.dxl.disable_torque()
+            self.dxl.set_operating_mode(CURRENT_CONTROL_MODE)
+            self.dxl.enable_torque()
 
         print("\n" + "=" * 60)
         print("Initialization complete!")
@@ -525,6 +536,45 @@ class GravityCompensator:
         if max_error > 0.3:
             print(f"  WARNING: Max calibration error is {max_error:.3f} rad")
             print("  Make sure the arm is in the calibration position!")
+
+    def write_homing_offsets_to_hw(self) -> None:
+        """Write current joint offsets to motor EEPROM (Homing Offset)."""
+        from dynamixel_sdk.robotis_def import COMM_SUCCESS, DXL_LOBYTE, DXL_LOWORD, DXL_HIBYTE, DXL_HIWORD
+        
+        if self.dry_run:
+            print("[DRY RUN] Would write homing offsets to hardware.")
+            return
+
+        print("\nWriting homing offsets to motor memory...")
+        self.dxl.disable_torque()
+        
+        # Calibration is in radians, Dynamixel Homing Offset is in ticks
+        # Offset (ticks) = - (Current Raw Position - Correct Home Position)
+        # However, our self.joint_offsets already stores the 'raw' values at home.
+        
+        raw_pos, _ = self.dxl.read_positions_and_velocities() # In ticks (via dxl internal)
+        # This is tricky because dxl.read returns radians via wrapper.
+        # We need raw int32 ticks.
+        raw_ticks = self.dxl._positions 
+        
+        for i, (dxl_id, offset_ticks) in enumerate(zip(self.dxl.motor_ids, raw_ticks)):
+            # The goal is that at the current position, the motor should report 0.
+            # So the homing offset should be -raw_ticks.
+            val = int(-offset_ticks)
+            
+            # Write 4 bytes
+            data = [DXL_LOBYTE(DXL_LOWORD(val)), DXL_HIBYTE(DXL_LOWORD(val)), 
+                    DXL_LOBYTE(DXL_HIWORD(val)), DXL_HIBYTE(DXL_HIWORD(val))]
+            
+            result, error = self.dxl._packet_handler.write4ByteTxRx(
+                self.dxl._port_handler, dxl_id, ADDR_HOMING_OFFSET, val
+            )
+            if result == COMM_SUCCESS and error == 0:
+                print(f"  Motor {dxl_id}: Offset {val} saved.")
+            else:
+                print(f"  Motor {dxl_id}: FAILED to save offset.")
+        
+        print("Hardware Homing Complete. Please restart the robot.")
 
     def _get_arm_positions(self, raw_pos: np.ndarray) -> np.ndarray:
         """Apply offsets and signs to get arm joint positions."""
@@ -759,6 +809,14 @@ Safety:
         "--friction", type=float, default=None,
         help="Friction compensation gain (default: 0.0)"
     )
+    parser.add_argument(
+        "--calibrate", action="store_true",
+        help="Run calibration and save to config/calibration.yaml"
+    )
+    parser.add_argument(
+        "--write-to-hw", action="store_true",
+        help="Write calibration offsets to motor EEPROM (requires --calibrate)"
+    )
     return parser.parse_args()
 
 
@@ -780,6 +838,12 @@ def main() -> int:
     if args.friction is not None:
         config["friction_comp_gain"] = args.friction
 
+    # Load persistent calibration if it exists
+    persistent_offsets = config_manager.load_calibration()
+    if persistent_offsets and not args.calibrate:
+        print(f"Loaded persistent calibration: {[f'{x:.3f}' for x in persistent_offsets]}")
+        config["joint_offsets"] = persistent_offsets
+
     try:
         comp = GravityCompensator(config)
 
@@ -793,6 +857,14 @@ def main() -> int:
             signal.signal(signal.SIGTERM, signal_handler)
 
         comp.initialize()
+        
+        if args.calibrate:
+            config_manager.save_calibration(comp.joint_offsets)
+            if args.write_to_hw:
+                comp.write_homing_offsets_to_hw()
+            print("Calibration complete. Exiting.")
+            return 0
+
         comp.run()
 
     except FileNotFoundError as e:

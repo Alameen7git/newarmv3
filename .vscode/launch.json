@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "🚀 Start Robot",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_robot.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": []
+        },
+        {
+            "name": "🧪 Calibrate Robot",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_robot.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--calibrate"]
+        },
+        {
+            "name": "💾 Write Homing to EEPROM",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_robot.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--calibrate", "--write-to-hw"]
+        },
+        {
+            "name": "🔍 Dry Run (Test)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_robot.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--dry-run"]
+        }
+    ]
+}

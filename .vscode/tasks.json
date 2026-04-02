@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start Robot (Background)",
+            "type": "shell",
+            "command": "./start.sh",
+            "windows": {
+                "command": ".\\start.bat"
+            },
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Stop Robot",
+            "type": "shell",
+            "command": "./stop.sh",
+            "windows": {
+                "command": ".\\stop.bat"
+            },
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "View Logs",
+            "type": "shell",
+            "command": "tail -f robot.log",
+            "windows": {
+                "command": "type robot.log"
+            },
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        }
+    ]
+}
